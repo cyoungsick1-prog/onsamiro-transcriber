@@ -41,7 +41,9 @@ jobs:
           gradle-version: '8.9'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
 
       - name: Install SDK 35, Build Tools, NDK 28, CMake
         shell: bash
@@ -100,6 +102,6 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: onsamiro-v3.0.1-apk
+          
           path: out/*
           if-no-files-found: error
