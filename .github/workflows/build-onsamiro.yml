@@ -1,0 +1,105 @@
+name: Build Onsamiro APK from uploaded ZIP
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'onsamiro_source_v301.zip'
+      - '.github/workflows/build-onsamiro.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unpack source ZIP
+        shell: bash
+        run: |
+          set -euxo pipefail
+          rm -rf buildsrc
+          mkdir buildsrc
+          unzip -q onsamiro_source_v301.zip -d buildsrc
+          PROJECT="$(find buildsrc -mindepth 1 -maxdepth 2 -type f -name settings.gradle -printf '%h\n' | head -n1)"
+          test -n "$PROJECT"
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
+          chmod +x "$PROJECT"/scripts/*.sh || true
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install SDK 35, Build Tools, NDK 28, CMake
+        shell: bash
+        run: |
+          set -euxo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "platform-tools" \
+            "ndk;28.0.13004108" \
+            "cmake;3.22.1"
+
+      - name: Fetch pinned whisper.cpp
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT"
+          ./scripts/fetch_whisper.sh
+
+      - name: Static audit and self-test
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT"
+          ./scripts/static_audit.sh
+          mkdir -p build/qgtest
+          javac -d build/qgtest \
+            app/src/main/java/com/onsamiro/transcriber/QualityGuard.java \
+            tools/QualityGuardSelfTest.java
+          java -cp build/qgtest QualityGuardSelfTest
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT"
+          gradle --no-daemon :app:assembleDebug
+
+      - name: Verify signature, ZIP alignment and 16 KiB native alignment
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT"
+          ./scripts/verify_apk.sh app/build/outputs/apk/debug/app-debug.apk
+          sha256sum app/build/outputs/apk/debug/app-debug.apk | tee app-debug.sha256
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p out
+          cp "$PROJECT/app/build/outputs/apk/debug/app-debug.apk" out/온새미로_자동전사_v3.0.1_debug.apk
+          cp "$PROJECT/app-debug.sha256" out/SHA256.txt
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: onsamiro-v3.0.1-apk
+          path: out/*
+          if-no-files-found: error
