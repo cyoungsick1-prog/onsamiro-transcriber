@@ -1,0 +1,208 @@
+name: Build Onsamiro v3.1.10 Spacing Fix
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - 'onsamiro_source_v3110_spacing_fix.zip'
+      - '.github/workflows/build-onsamiro.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unpack v3.1.10 source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          SOURCE_ZIP="onsamiro_source_v3110_spacing_fix.zip"
+          test -f "$SOURCE_ZIP"
+          rm -rf buildsrc
+          mkdir buildsrc
+          unzip -q "$SOURCE_ZIP" -d buildsrc
+          PROJECT="$(find buildsrc -mindepth 1 -maxdepth 3 -type f -name settings.gradle -printf '%h\n' | head -n1)"
+          test -n "$PROJECT"
+          echo "PROJECT=$PROJECT" >> "$GITHUB_ENV"
+          chmod +x "$PROJECT"/scripts/*.sh || true
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools'
+
+      - name: Install SDK 35, Build Tools, NDK 28, CMake
+        shell: bash
+        run: |
+          set -euxo pipefail
+          yes | sdkmanager --licenses >/dev/null || true
+          sdkmanager \
+            "platforms;android-35" \
+            "build-tools;35.0.0" \
+            "platform-tools" \
+            "ndk;28.0.13004108" \
+            "cmake;3.22.1"
+
+      - name: Fetch pinned whisper.cpp
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT"
+          ./scripts/fetch_whisper.sh
+
+      - name: Static audit and spacing checks
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT"
+
+          ./scripts/static_audit.sh
+
+          grep -q "applicationId 'com.onsamiro.transcriber.v3110'" app/build.gradle
+          grep -q "versionName '3.1.10-spacing-fix'" app/build.gradle
+          grep -q 'setContentView(rootLayout)' app/src/main/java/com/onsamiro/transcriber/MainActivity.java
+          grep -q 'rootLayout.setPadding(dp(20), dp(184), dp(20), dp(24))' app/src/main/java/com/onsamiro/transcriber/MainActivity.java
+          grep -q 'LinearLayout.LayoutParams.MATCH_PARENT, dp(160)' app/src/main/java/com/onsamiro/transcriber/SettingsActivity.java
+
+          grep -q '기존 전사 ' app/src/main/java/com/onsamiro/transcriber/MainActivity.java
+          grep -q '전체 진행 ' app/src/main/java/com/onsamiro/transcriber/MainActivity.java
+          grep -q '파일 ' app/src/main/java/com/onsamiro/transcriber/MainActivity.java
+
+          if grep -q 'android.widget.ScrollView' app/src/main/java/com/onsamiro/transcriber/MainActivity.java; then
+            echo 'FAIL: MainActivity still imports ScrollView'
+            exit 1
+          fi
+
+          if grep -q 'returnToTop' app/src/main/java/com/onsamiro/transcriber/MainActivity.java; then
+            echo 'FAIL: old scroll-position workaround still exists'
+            exit 1
+          fi
+
+          if grep -q 'POST_NOTIFICATIONS' app/src/main/AndroidManifest.xml; then
+            echo 'FAIL: notification permission unexpectedly present'
+            exit 1
+          fi
+
+          if grep -q 'FOREGROUND_SERVICE' app/src/main/AndroidManifest.xml; then
+            echo 'FAIL: foreground-service permission unexpectedly present'
+            exit 1
+          fi
+
+          mkdir -p build/qgtest
+
+          javac -d build/qgtest \
+            app/src/main/java/com/onsamiro/transcriber/QualityGuard.java \
+            tools/QualityGuardSelfTest.java
+
+          java -cp build/qgtest QualityGuardSelfTest
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT"
+          gradle --no-daemon :app:assembleDebug
+
+      - name: Verify APK signature and 16 KiB alignment
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cd "$PROJECT"
+
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          BT="${ANDROID_HOME}/build-tools/35.0.0"
+
+          test -f "$APK"
+
+          "$BT/apksigner" verify --verbose "$APK"
+          "$BT/zipalign" -c -P 16 -v 4 "$APK"
+
+          TMP="$(mktemp -d)"
+          unzip -q "$APK" 'lib/*/*.so' -d "$TMP"
+
+          python3 - "$TMP" <<'PY'
+          import sys
+          import subprocess
+          from pathlib import Path
+
+          root = Path(sys.argv[1])
+          libs = list(root.glob('lib/*/*.so'))
+
+          if not libs:
+              raise SystemExit('FAIL: No native libraries found')
+
+          checked = 0
+
+          for so in libs:
+              out = subprocess.check_output(
+                  ['readelf', '-lW', str(so)],
+                  text=True
+              )
+
+              for line in out.splitlines():
+                  parts = line.split()
+
+                  if parts and parts[0] == 'LOAD':
+                      align = int(parts[-1], 16)
+
+                      if align < 16384:
+                          raise SystemExit(
+                              f'FAIL: {so} alignment {parts[-1]} < 0x4000'
+                          )
+
+                      checked += 1
+
+          if checked == 0:
+              raise SystemExit(
+                  'FAIL: No PT_LOAD segments checked'
+              )
+
+          print(
+              f'ELF 16KiB ALIGNMENT PASS '
+              f'({len(libs)} libs, {checked} LOAD segments)'
+          )
+          PY
+
+          sha256sum "$APK" | tee app-debug.sha256
+
+      - name: Stage artifact
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          mkdir -p out
+
+          cp \
+            "$PROJECT/app/build/outputs/apk/debug/app-debug.apk" \
+            "out/온새미로_자동전사_v3.1.10_상단추가내림_하단공백.apk"
+
+          cp \
+            "$PROJECT/app-debug.sha256" \
+            "out/SHA256.txt"
+
+          ls -lh out
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: onsamiro-v3.1.10-spacing-fix
+          path: out/*
+          if-no-files-found: error
+          retention-days: 7
