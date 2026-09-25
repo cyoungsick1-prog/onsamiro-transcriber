@@ -1,0 +1,56 @@
+name: Inspect Onsamiro v3.1.17 Effective Source
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/inspect-v318-source.yml'
+  workflow_dispatch:
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Extract base
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf extracted
+          mkdir -p extracted
+          unzip -q "수정소스_v3.1.15_빌드전.zip" -d extracted
+          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f -name settings.gradle -printf '%h\n' | head -n 1)"
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f -name settings.gradle.kts -printf '%h\n' | head -n 1)"
+          fi
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Apply current v3.1.17 overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/.build_overlay/v3.1.17/apply_v317.py" "$PROJECT_DIR"
+
+      - name: Print relevant effective source
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          echo '===== MAINACTIVITY ====='
+          sed -n '1,360p' app/src/main/java/com/onsamiro/transcriber/MainActivity.java || true
+          echo '===== JOBSTORE ====='
+          sed -n '1,520p' app/src/main/java/com/onsamiro/transcriber/JobStore.java || true
+          echo '===== WORKCOORDINATOR ====='
+          sed -n '1,520p' app/src/main/java/com/onsamiro/transcriber/WorkCoordinator.java || true
+          echo '===== APPSTATE ====='
+          find app/src/main/java/com/onsamiro/transcriber -maxdepth 1 -type f -printf '%f\n' | sort
+          echo '===== LAYOUT FILES ====='
+          find app/src/main/res -maxdepth 2 -type f | sort | sed -n '1,240p'
+          for f in app/src/main/res/layout/*.xml; do
+            [ -e "$f" ] || continue
+            echo "===== LAYOUT: $f ====="
+            sed -n '1,360p' "$f"
+          done
