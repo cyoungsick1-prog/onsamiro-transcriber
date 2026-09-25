@@ -83,30 +83,12 @@ replace_once(
                 .putBoolean("activate_after_setup", !p.getBoolean("user_stopped_realtime", false))
 ''')
 
+# Insert the v3.1.19 migration immediately before the range state methods. This
+# marker is stable across the v3.1.17/v3.1.18 overlays.
 replace_once(
     'app/src/main/java/com/onsamiro/transcriber/AppConfig.java',
-    '''    public void prepareFullFolderScanFixMigration() {
-        int applied = p.getInt("full_folder_scan_fix_version", 0);
-        if (applied >= 311400) return;
-        long baseline = autoBaselineMs();
-        SharedPreferences.Editor e = p.edit().putInt("full_folder_scan_fix_version", 311400);
-        if (baseline > 0L) e.putLong("last_recovery_scan_ms", baseline);
-        e.apply();
-    }
-
-
-    public long rangeStartMs() { return p.getLong("range_start", 0); }
-''',
-    '''    public void prepareFullFolderScanFixMigration() {
-        int applied = p.getInt("full_folder_scan_fix_version", 0);
-        if (applied >= 311400) return;
-        long baseline = autoBaselineMs();
-        SharedPreferences.Editor e = p.edit().putInt("full_folder_scan_fix_version", 311400);
-        if (baseline > 0L) e.putLong("last_recovery_scan_ms", baseline);
-        e.apply();
-    }
-
-    /**
+    '''\n\n    public long rangeStartMs() { return p.getLong("range_start", 0); }\n''',
+    '''\n\n    /**
      * v3.1.18 could report thousands of metadata rows yet still produce zero
      * candidates when provider timestamps/index coverage were incomplete.
      * Rewind once to the user's original source-selection baseline so a corrected
