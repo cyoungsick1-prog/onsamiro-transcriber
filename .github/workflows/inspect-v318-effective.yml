@@ -1,0 +1,58 @@
+name: Inspect effective v3.1.18 source
+
+permissions:
+  contents: write
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/inspect-v318-effective.yml'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - name: Extract base source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf extracted
+          mkdir extracted
+          unzip -q "수정소스_v3.1.15_빌드전.zip" -d extracted
+          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f -name settings.gradle -printf '%h\n' | head -n 1)"
+          test -n "$PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+      - name: Apply v3.1.17 and v3.1.18 overlays
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 ".build_overlay/v3.1.17/apply_v317.py" "$PROJECT_DIR"
+          python3 ".build_overlay/v3.1.18/apply_v318.py" "$PROJECT_DIR"
+      - name: Snapshot effective source
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf inspection_v318_effective
+          mkdir -p inspection_v318_effective
+          cp -R "$PROJECT_DIR/app/src/main/java/com/onsamiro/transcriber" inspection_v318_effective/java
+          cp -R "$PROJECT_DIR/app/src/main/cpp" inspection_v318_effective/cpp
+          cp "$PROJECT_DIR/app/build.gradle" inspection_v318_effective/app-build.gradle
+          cp -R "$PROJECT_DIR/scripts" inspection_v318_effective/scripts
+          cp -R "$PROJECT_DIR/tools" inspection_v318_effective/tools
+          find inspection_v318_effective -type f | sort > inspection_v318_effective/FILES.txt
+      - name: Commit snapshot
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add inspection_v318_effective
+          if git diff --cached --quiet; then
+            echo "No snapshot changes"
+            exit 0
+          fi
+          git commit -m "chore: snapshot effective v3.1.18 source"
+          git push
