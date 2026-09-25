@@ -207,7 +207,7 @@ replace_once(
     private static final long CONTENT_EVENT_WINDOW_MS = 15_000L;
     private static final int AUTO_SAF_FALLBACK_MAX_DOCS = Integer.MAX_VALUE; // selected recording tree must be exhausted
     private static final Pattern FILE_TIME = Pattern.compile(
-            "(?<!\\d)(20\\d{6})[ _.-]?([0-2]\\d[0-5]\\d[0-5]\\d)(?!\\d)");
+            "(?<!\\\\d)(20\\\\d{6})[ _.-]?([0-2]\\\\d[0-5]\\\\d[0-5]\\\\d)(?!\\\\d)");
 ''')
 
 # Direct content-trigger: an actual file-change URI is stronger evidence than an
