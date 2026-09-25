@@ -486,6 +486,14 @@ replace_once(
     private void immediateStop() {
 ''')
 
+# v3.1.17's stall self-test used the exact old if-expression. v3.1.18 adds a
+# null guard because the user-abort path can close/recreate the context.
+p = root/'tools/StallRecoverySelfTest.py'
+st = p.read_text(encoding='utf-8')
+st = st.replace('assert "if (whisper.isUnhealthy())" in work',
+                'assert "whisper.isUnhealthy()" in work')
+p.write_text(st, encoding='utf-8')
+
 # Version checks introduced by v3.1.17 must follow the new version.
 for path in [
     'tools/StallRecoverySelfTest.py',
