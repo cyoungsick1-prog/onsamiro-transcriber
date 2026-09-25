@@ -1,13 +1,14 @@
-name: Build Onsamiro v3.1.14 Full Folder Scan Fix
+name: Build Onsamiro v3.1.15 Auto Start Recovery
 
 on:
   workflow_dispatch:
+
   push:
     branches:
       - main
     paths:
-      - 'onsamiro_source_v3115_auto_start_recovery_FINAL.zip'
-      - '.github/workflows/android-build-full-folder-scan-fix.yml'
+      - '수정소스_v3.1.15_빌드전.zip'
+      - '.github/workflows/GitHub_Action_빌드_v3.1.15.yml'
 
 jobs:
   build:
@@ -27,10 +28,12 @@ jobs:
         run: |
           set -euo pipefail
 
-          ZIP="$GITHUB_WORKSPACE/onsamiro_source_v3115_auto_start_recovery_FINAL.zip"
+          ZIP="$GITHUB_WORKSPACE/수정소스_v3.1.15_빌드전.zip"
 
           test -f "$ZIP" || {
             echo "ERROR: source ZIP not found: $ZIP"
+            echo "Repository root files:"
+            ls -lah "$GITHUB_WORKSPACE"
             exit 1
           }
 
@@ -38,6 +41,9 @@ jobs:
           mkdir -p "$GITHUB_WORKSPACE/extracted"
 
           unzip -q "$ZIP" -d "$GITHUB_WORKSPACE/extracted"
+
+          echo "ZIP extraction complete"
+          find "$GITHUB_WORKSPACE/extracted" -maxdepth 3 -type f | head -100
 
       - name: Find Android project
         shell: bash
@@ -50,8 +56,18 @@ jobs:
             -printf '%h\n' \
             | head -n 1)"
 
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" \
+              -type f \
+              -name settings.gradle.kts \
+              -printf '%h\n' \
+              | head -n 1)"
+          fi
+
           test -n "$PROJECT_DIR" || {
-            echo "ERROR: settings.gradle not found"
+            echo "ERROR: Android project not found"
+            echo "Extracted folders:"
+            find "$GITHUB_WORKSPACE/extracted" -maxdepth 4 -type f | head -200
             exit 1
           }
 
@@ -102,6 +118,12 @@ jobs:
           cd "$PROJECT_DIR"
 
           chmod +x scripts/*.sh || true
+
+          test -f "./scripts/fetch_whisper.sh" || {
+            echo "ERROR: scripts/fetch_whisper.sh not found"
+            exit 1
+          }
+
           bash ./scripts/fetch_whisper.sh
 
       - name: Run regression checks
@@ -111,14 +133,25 @@ jobs:
 
           cd "$PROJECT_DIR"
 
+          test -f "./scripts/static_audit.sh" || {
+            echo "ERROR: scripts/static_audit.sh not found"
+            exit 1
+          }
+
+          chmod +x scripts/*.sh || true
+
           bash ./scripts/static_audit.sh
+
           python3 ./tools/NoThermalStopSelfTest.py
           python3 ./tools/ThermalRecoverySelfTest.py
           python3 ./tools/BackgroundRecoverySelfTest.py
           python3 ./tools/FullFolderScanSelfTest.py
 
-          grep -q "applicationId 'com.onsamiro.transcriber.v3110'" app/build.gradle
-          grep -q "versionName '3.1.15-auto-start-recovery'" app/build.gradle
+          grep -q "applicationId 'com.onsamiro.transcriber.v3110'" \
+            app/build.gradle
+
+          grep -q "versionName '3.1.15-auto-start-recovery'" \
+            app/build.gradle
 
           grep -q 'AUTO_SAF_FALLBACK_MAX_DOCS = Integer.MAX_VALUE' \
             app/src/main/java/com/onsamiro/transcriber/DocumentScanner.java
@@ -150,7 +183,8 @@ jobs:
           grep -q 'android:foregroundServiceType="specialUse"' \
             app/src/main/AndroidManifest.xml
 
-          ! grep -q 'POST_NOTIFICATIONS' app/src/main/AndroidManifest.xml
+          ! grep -q 'POST_NOTIFICATIONS' \
+            app/src/main/AndroidManifest.xml
 
           rm -rf build/qgtest
           mkdir -p build/qgtest
@@ -161,6 +195,8 @@ jobs:
             tools/QualityGuardSelfTest.java
 
           java -cp build/qgtest QualityGuardSelfTest
+
+          echo "Regression checks passed"
 
       - name: Build debug APK
         shell: bash
@@ -185,10 +221,19 @@ jobs:
 
           test -f "$APK" || {
             echo "ERROR: APK not created"
+            find app/build/outputs -type f 2>/dev/null || true
+            exit 1
+          }
+
+          test -f "./scripts/verify_apk.sh" || {
+            echo "ERROR: scripts/verify_apk.sh not found"
             exit 1
           }
 
           bash ./scripts/verify_apk.sh "$APK"
+
+          echo "APK verification complete"
+          ls -lh "$APK"
 
       - name: Prepare artifacts
         shell: bash
@@ -197,6 +242,7 @@ jobs:
 
           APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
 
+          rm -rf "$GITHUB_WORKSPACE/dist"
           mkdir -p "$GITHUB_WORKSPACE/dist"
 
           cp \
@@ -204,7 +250,7 @@ jobs:
             "$GITHUB_WORKSPACE/dist/온새미로_자동전사_v3.1.15_자동시작복구.apk"
 
           cp \
-            "$GITHUB_WORKSPACE/onsamiro_source_v3115_auto_start_recovery_FINAL.zip" \
+            "$GITHUB_WORKSPACE/수정소스_v3.1.15_빌드전.zip" \
             "$GITHUB_WORKSPACE/dist/onsamiro_source_v3115_auto_start_recovery_FINAL.zip"
 
           cd "$GITHUB_WORKSPACE/dist"
@@ -214,6 +260,7 @@ jobs:
             "onsamiro_source_v3115_auto_start_recovery_FINAL.zip" \
             > SHA256.txt
 
+          echo "Build artifacts:"
           ls -lh
 
       - name: Upload build artifacts
