@@ -54,6 +54,8 @@ jobs:
           python3 "$GITHUB_WORKSPACE/.build_overlay/v3.1.18/apply_v318.py" "$PROJECT_DIR"
           python3 "$GITHUB_WORKSPACE/.build_overlay/v3.1.19/apply_v319.py" "$PROJECT_DIR"
           python3 "$GITHUB_WORKSPACE/.build_overlay/v3.1.20/apply_v320.py" "$PROJECT_DIR"
+          # v3.1.20 supersedes one exact v3.1.19 comment-string assertion.
+          sed -i "s/selected SAF folder is authoritative/SAF is authoritative/" "$PROJECT_DIR/tools/CandidateDiscoverySelfTest.py"
           grep -q "versionName '3.1.20-reliability-final'" "$PROJECT_DIR/app/build.gradle"
 
       - name: Set up Java 17
