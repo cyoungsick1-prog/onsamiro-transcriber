@@ -51,31 +51,23 @@ replace_once("app/src/main/cpp/whisper_jni.cpp",
 ''')
 
 replace_once("app/src/main/cpp/whisper_jni.cpp",
-'''    if(g_user_skip_requested.load(std::memory_order_relaxed)){
-        LOGE("whisper_full aborted by user skip: rc=%d progress=%d", rc, watchdog.last_progress.load(std::memory_order_relaxed));
-        return env->NewStringUTF("__ONSAMIRO_USER_SKIP__");
-    }
-    if(watchdog.timed_out.load(std::memory_order_relaxed)){
-        LOGE("whisper_full watchdog timeout: rc=%d progress=%d", rc, watchdog.last_progress.load(std::memory_order_relaxed));
-        return env->NewStringUTF("__ONSAMIRO_TIMEOUT__");
-    }
-    if(rc!=0){LOGE("whisper_full failed: %d",rc);return nullptr;}
-
-    std::string out;int segs=whisper_full_n_segments(ctx);
+'''        return env->NewStringUTF("__ONSAMIRO_USER_SKIP__");
 ''',
-'''    if(g_user_skip_requested.load(std::memory_order_relaxed)){
-        g_transcription_progress.store(-1, std::memory_order_relaxed);
-        LOGE("whisper_full aborted by user skip: rc=%d progress=%d", rc, watchdog.last_progress.load(std::memory_order_relaxed));
+'''        g_transcription_progress.store(-1, std::memory_order_relaxed);
         return env->NewStringUTF("__ONSAMIRO_USER_SKIP__");
-    }
-    if(watchdog.timed_out.load(std::memory_order_relaxed)){
-        g_transcription_progress.store(-1, std::memory_order_relaxed);
-        LOGE("whisper_full watchdog timeout: rc=%d progress=%d", rc, watchdog.last_progress.load(std::memory_order_relaxed));
-        return env->NewStringUTF("__ONSAMIRO_TIMEOUT__");
-    }
-    if(rc!=0){g_transcription_progress.store(-1, std::memory_order_relaxed);LOGE("whisper_full failed: %d",rc);return nullptr;}
-    g_transcription_progress.store(100, std::memory_order_relaxed);
+''')
 
+replace_once("app/src/main/cpp/whisper_jni.cpp",
+'''        return env->NewStringUTF("__ONSAMIRO_TIMEOUT__");
+''',
+'''        g_transcription_progress.store(-1, std::memory_order_relaxed);
+        return env->NewStringUTF("__ONSAMIRO_TIMEOUT__");
+''')
+
+replace_once("app/src/main/cpp/whisper_jni.cpp",
+'''    std::string out;int segs=whisper_full_n_segments(ctx);
+''',
+'''    g_transcription_progress.store(100, std::memory_order_relaxed);
     std::string out;int segs=whisper_full_n_segments(ctx);
 ''')
 
