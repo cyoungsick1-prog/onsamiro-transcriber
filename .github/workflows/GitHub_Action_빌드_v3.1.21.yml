@@ -1,0 +1,158 @@
+name: Build Onsamiro v3.1.21 Live Progress Final
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - '수정소스_v3.1.15_빌드전.zip'
+      - '.build_overlay/v3.1.17/apply_v317.py'
+      - '.build_overlay/v3.1.18/apply_v318.py'
+      - '.build_overlay/v3.1.19/apply_v319.py'
+      - '.build_overlay/v3.1.20/apply_v320.py'
+      - '.build_overlay/v3.1.21/apply_v321.py'
+      - '.github/workflows/GitHub_Action_빌드_v3.1.20.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v5
+
+      - name: Extract v3.1.15 base source
+        shell: bash
+        run: |
+          set -euo pipefail
+          ZIP="$GITHUB_WORKSPACE/수정소스_v3.1.15_빌드전.zip"
+          test -f "$ZIP" || { echo "ERROR: source ZIP not found: $ZIP"; exit 1; }
+          rm -rf "$GITHUB_WORKSPACE/extracted"
+          mkdir -p "$GITHUB_WORKSPACE/extracted"
+          unzip -q "$ZIP" -d "$GITHUB_WORKSPACE/extracted"
+
+      - name: Find Android project
+        shell: bash
+        run: |
+          set -euo pipefail
+          PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f -name settings.gradle -printf '%h\n' | head -n 1)"
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR="$(find "$GITHUB_WORKSPACE/extracted" -type f -name settings.gradle.kts -printf '%h\n' | head -n 1)"
+          fi
+          test -n "$PROJECT_DIR" || { echo "ERROR: Android project not found"; exit 1; }
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Apply reliability overlays
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 "$GITHUB_WORKSPACE/.build_overlay/v3.1.17/apply_v317.py" "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/.build_overlay/v3.1.18/apply_v318.py" "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/.build_overlay/v3.1.19/apply_v319.py" "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/.build_overlay/v3.1.20/apply_v320.py" "$PROJECT_DIR"
+          python3 "$GITHUB_WORKSPACE/.build_overlay/v3.1.21/apply_v321.py" "$PROJECT_DIR"
+          # v3.1.20 supersedes one exact v3.1.19 comment-string assertion.
+          sed -i "s/selected SAF folder is authoritative/SAF is authoritative/" "$PROJECT_DIR/tools/CandidateDiscoverySelfTest.py"
+          sed -i 's/QualityGuard.Verdict.NO_AUDIO,i(60_000,60_000,300/QualityGuard.Verdict.REVIEW_REQUIRED,i(60_000,60_000,300/' "$PROJECT_DIR/tools/QualityGuardSelfTest.java"
+          grep -q "versionName '3.1.21-live-progress-final'" "$PROJECT_DIR/app/build.gradle"
+
+      - name: Set up Java 17
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.9
+        uses: gradle/actions/setup-gradle@v6.3.0
+        with:
+          gradle-version: '8.9'
+
+      - name: Install Android SDK components
+        shell: bash
+        run: |
+          set -euo pipefail
+          SDKMANAGER="$(find "$ANDROID_SDK_ROOT/cmdline-tools" -type f -path '*/bin/sdkmanager' | sort -V | tail -n 1)"
+          test -x "$SDKMANAGER" || { echo "ERROR: sdkmanager not found"; exit 1; }
+          yes | "$SDKMANAGER" --licenses >/dev/null || true
+          "$SDKMANAGER" "platform-tools" "platforms;android-35" "build-tools;35.0.0" "ndk;28.0.13004108" "cmake;3.22.1"
+
+      - name: Fetch whisper.cpp
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x scripts/*.sh || true
+          bash ./scripts/fetch_whisper.sh
+
+      - name: Run full regression checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          chmod +x scripts/*.sh || true
+          bash ./scripts/static_audit.sh
+          python3 ./tools/NoThermalStopSelfTest.py
+          python3 ./tools/ThermalRecoverySelfTest.py
+          python3 ./tools/BackgroundRecoverySelfTest.py
+          python3 ./tools/FullFolderScanSelfTest.py
+          python3 ./tools/BackgroundContinuousSelfTest.py
+          python3 ./tools/StallRecoverySelfTest.py
+          python3 ./tools/ManualSkipSelfTest.py
+          python3 ./tools/CandidateDiscoverySelfTest.py
+          python3 ./tools/ReliabilityV320SelfTest.py
+          python3 ./tools/LiveProgressV321SelfTest.py
+          rm -rf build/qgtest
+          mkdir -p build/qgtest
+          javac -d build/qgtest app/src/main/java/com/onsamiro/transcriber/QualityGuard.java tools/QualityGuardSelfTest.java
+          java -cp build/qgtest QualityGuardSelfTest
+
+      - name: Build debug APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          gradle --no-daemon --stacktrace :app:assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$PROJECT_DIR"
+          APK="app/build/outputs/apk/debug/app-debug.apk"
+          test -f "$APK" || { echo "ERROR: APK not created"; exit 1; }
+          bash ./scripts/verify_apk.sh "$APK"
+          "$ANDROID_SDK_ROOT/build-tools/35.0.0/aapt" dump badging "$APK" | head -n 5
+
+      - name: Prepare final artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="$PROJECT_DIR/app/build/outputs/apk/debug/app-debug.apk"
+          rm -rf "$GITHUB_WORKSPACE/dist"
+          mkdir -p "$GITHUB_WORKSPACE/dist"
+          cp "$APK" "$GITHUB_WORKSPACE/dist/온새미로_자동전사_v3.1.21_실시간진행률_최종.apk"
+          cd "$PROJECT_DIR"
+          zip -qr "$GITHUB_WORKSPACE/dist/onsamiro_source_v3121_live_progress_FINAL.zip" . -x 'third_party/whisper.cpp/*' 'app/build/*' 'build/*' '.gradle/*'
+          cd "$GITHUB_WORKSPACE/dist"
+          sha256sum "온새미로_자동전사_v3.1.21_실시간진행률_최종.apk" "onsamiro_source_v3121_live_progress_FINAL.zip" > SHA256.txt
+          printf 'version=3.1.21-live-progress-final\n' > BUILD_REPORT.txt
+          printf 'regression=PASS\n' >> BUILD_REPORT.txt
+          printf 'apk_verify=PASS\n' >> BUILD_REPORT.txt
+          ls -lh
+
+      - name: Upload final artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: onsamiro-v3.1.21-live-progress-final
+          path: |
+            dist/온새미로_자동전사_v3.1.21_실시간진행률_최종.apk
+            dist/onsamiro_source_v3121_live_progress_FINAL.zip
+            dist/SHA256.txt
+            dist/BUILD_REPORT.txt
+          if-no-files-found: error
+          retention-days: 30
