@@ -13,6 +13,7 @@ on:
       - '.build_overlay/v3.1.20/apply_v320.py'
       - '.build_overlay/v3.1.21/apply_v321.py'
       - '.github/workflows/GitHub_Action_빌드_v3.1.20.yml'
+      - '.github/workflows/GitHub_Action_빌드_v3.1.21.yml'
 
 jobs:
   build:
