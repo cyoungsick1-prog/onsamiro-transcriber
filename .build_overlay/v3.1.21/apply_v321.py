@@ -64,12 +64,16 @@ replace_once("app/src/main/cpp/whisper_jni.cpp",
         return env->NewStringUTF("__ONSAMIRO_TIMEOUT__");
 ''')
 
-replace_once("app/src/main/cpp/whisper_jni.cpp",
-'''    std::string out;int segs=whisper_full_n_segments(ctx);
-''',
-'''    g_transcription_progress.store(100, std::memory_order_relaxed);
-    std::string out;int segs=whisper_full_n_segments(ctx);
-''')
+p = root / "app/src/main/cpp/whisper_jni.cpp"
+src = p.read_text(encoding="utf-8")
+needle = "int segs=whisper_full_n_segments(ctx);"
+if needle not in src:
+    raise SystemExit("whisper segment-count marker missing")
+src = src.replace(
+    needle,
+    "g_transcription_progress.store(100, std::memory_order_relaxed);\\n    " + needle,
+    1)
+p.write_text(src, encoding="utf-8")
 
 replace_once("app/src/main/cpp/whisper_jni.cpp",
 '''extern "C" JNIEXPORT void JNICALL Java_com_onsamiro_transcriber_WhisperBridge_nativeRequestUserSkip(JNIEnv*,jclass){
