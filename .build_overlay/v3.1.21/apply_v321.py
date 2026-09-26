@@ -175,7 +175,7 @@ replace_once("app/src/main/java/com/onsamiro/transcriber/MainActivity.java",
         final JobRecord target = current;
         new AlertDialog.Builder(this)
                 .setTitle("현재 파일을 건너뛸까요?")
-                .setMessage("이 파일은 완료 처리하지 않고 '확인 필요'로 남습니다. 나중에 기록에서 다시 시도할 수 있어요.\n\n" + shortName(target.displayName, 48))
+                .setMessage("이 파일은 완료 처리하지 않고 '확인 필요'로 남습니다. 나중에 기록에서 다시 시도할 수 있어요.\\n\\n" + shortName(target.displayName, 48))
                 .setNegativeButton("계속 전사", null)
                 .setPositiveButton("건너뛰기", (d, w) -> {
                     try (JobStore s = new JobStore(this)) {
