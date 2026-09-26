@@ -190,6 +190,12 @@ replace_once("app/src/main/java/com/onsamiro/transcriber/MainActivity.java",
     }
 ''')
 
+p = root / "tools/ManualSkipSelfTest.py"
+ms = p.read_text(encoding="utf-8")
+ms = ms.replace("'markManualSkip(current.id'", "'markManualSkip(target.id'")
+ms = ms.replace("'requestSkipCurrent(current.id)'", "'requestSkipCurrent(target.id)'")
+p.write_text(ms, encoding="utf-8")
+
 (root/"tools/LiveProgressV321SelfTest.py").write_text(r'''from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 JAVA=ROOT/"app/src/main/java/com/onsamiro/transcriber"
