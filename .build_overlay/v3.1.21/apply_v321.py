@@ -71,7 +71,7 @@ if needle not in src:
     raise SystemExit("whisper segment-count marker missing")
 src = src.replace(
     needle,
-    "g_transcription_progress.store(100, std::memory_order_relaxed);\\n    " + needle,
+    "g_transcription_progress.store(100, std::memory_order_relaxed);\n    " + needle,
     1)
 p.write_text(src, encoding="utf-8")
 
